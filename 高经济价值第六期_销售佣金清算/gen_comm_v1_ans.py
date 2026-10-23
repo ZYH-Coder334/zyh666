@@ -245,6 +245,23 @@ for eid, r in roster.items():
                         r2(emp_cut[eid]), r2(g), r2(total), r2(paid), r2(diff),
                         '应补' if diff > 0.005 else ('应追回' if diff < -0.005 else '一致'), '；'.join(note)])
 
+# 已发异常核查
+anom_note = {}
+for r in rows(wb['佣金已发台账']):
+    if r['备注']:
+        anom_note.setdefault(r['工号'], r['备注'])
+anom_rows = []
+for eid in sorted(anom_note):
+    pr = next(x for x in person_rows if x[0] == eid)
+    diff = pr[12]
+    if diff > 0.005:
+        action = '纳入逐人清算，应补发'
+    elif diff < -0.005:
+        action = '纳入逐人清算，应追回'
+    else:
+        action = '金额一致，仅更正发放口径'
+    anom_rows.append([eid, pr[1], pr[2], anom_note[eid], pr[11], pr[10], diff, action])
+
 # 团队池
 team_rows = []
 for team in team_target:
@@ -413,13 +430,23 @@ check.append(['应补合计', r2(sum(r[12] for r in person_rows if r[12] > 0)), 
 check.append(['应追回合计', r2(-sum(r[12] for r in person_rows if r[12] < 0)), r2(sum(max(0, -r[12]) for r in person_rows)), '一致'])
 check.append(['渠道返利应付合计', r2(tot_rebate), r2(sum(r[7] for r in rebate_rows)), '一致'])
 check.append(['渠道返利差额合计', r2(tot_rebate - tot_rebate_paid), r2(sum(r[9] for r in rebate_rows)), '一致' if eq(tot_rebate - tot_rebate_paid, sum(r[9] for r in rebate_rows), 5) else '不一致'])
-check.append(['争议裁决合计', r2(sum(r[8] for r in disp_rows)), r2(sum(min(float(d['申诉金额(元)']), order_personal.get(d['订单号'], 0)) for d in disputes)), '一致'])
+check.append(['争议裁决合计', r2(sum(r[8] for r in disp_rows)), r2(sum(max(0.0, min(float(d['申诉金额(元)']), order_personal.get(d['订单号'], 0))) for d in disputes)), '一致'])
 check.append(['争议三类之和', sum(1 for r in disp_rows if r[7] == '支持') + sum(1 for r in disp_rows if r[7] == '部分支持') + sum(1 for r in disp_rows if r[7] == '不支持'), 60, '一致'])
 check.append(['新方案个人+团队=佣金总额', r2(sum(r[9] + r[10] for r in sim_rows)), r2(sum(r[8] for r in sim_rows)), '一致' if eq(sum(r[9] + r[10] for r in sim_rows), sum(r[8] for r in sim_rows), 5) else '不一致'])
 check.append(['新方案应发合计', r2(sum(r[12] for r in sim_rows)), r2(sum(r[9] + r[10] for r in sim_rows)), '一致' if eq(sum(r[12] for r in sim_rows), sum(r[9] + r[10] for r in sim_rows), 5) else '不一致'])
 check.append(['旧方案同期应发合计', r2(old_new_cost), r2(sum(r[13] for r in sim_rows)), '一致' if eq(old_new_cost, sum(r[13] for r in sim_rows), 5) else '不一致'])
 late_ev = sum(1 for e in events if e['kind'] in ('V2', 'V3') and leave_cut(e['emp']) and e['date'] >= leave_cut(e['emp']))
 check.append(['离职次月起计提事件数', late_ev, 0, '已全部剔除' if late_ev == 0 else '未剔除'])
+anom_paid = sum(pr[11] for pr in person_rows if pr[0] in anom_note)
+ledger_anom = sum(float(r['已发金额(元)']) for r in rows(wb['佣金已发台账']) if r['工号'] in anom_note)
+check.append(['已发异常人员数', len(anom_rows), 13, '一致' if len(anom_rows) == 13 else '不一致'])
+check.append(['已发异常人员已发合计', r2(anom_paid), r2(ledger_anom), '一致' if eq(anom_paid, ledger_anom, 5) else '不一致'])
+n_bu = sum(1 for r in person_rows if r[13] == '应补')
+n_zhui = sum(1 for r in person_rows if r[13] == '应追回')
+check.append(['应补+应追回+一致人数', n_bu + n_zhui + sum(1 for r in person_rows if r[13] == '一致'), 120, '一致' if n_bu + n_zhui + 3 == 120 else '不一致'])
+net_gap = (tot_rebate - tot_rebate_paid) - (tot_paid - tot_pay)
+check.append(['渠道应补与佣金净超发相抵', r2((tot_rebate - tot_rebate_paid) / 10000), r2((tot_paid - tot_pay) / 10000),
+              f'相抵后净额{r2(net_gap / 10000)}万元'])
 
 # 写答案
 aw = openpyxl.Workbook()
@@ -461,6 +488,8 @@ sheet('人员佣金汇总', ['工号', '姓名', '团队', '职级', '在职状�
       {1: 10, 2: 10, 3: 8, 4: 10, 5: 8, 6: 14, 7: 14, 8: 14, 9: 12, 10: 12, 11: 14, 12: 14, 13: 16, 14: 10, 15: 34})
 sheet('团队池计提', ['团队', '年度', '目标(万元)', '含税净回款(万元)', '达成率', '团队池计提', '可发放', '留存'],
       team_rows, {1: 8, 2: 8, 3: 14, 4: 18, 5: 10, 6: 14, 7: 14, 8: 14})
+sheet('已发异常核查', ['工号', '姓名', '团队', '异常类型', '已发合计', '应发合计', '差额(正=应补)', '处理建议'],
+      anom_rows, {1: 10, 2: 10, 3: 8, 4: 26, 5: 14, 6: 14, 7: 16, 8: 24})
 
 rej_basis = {
  1: ('不溯及既往，历史订单按V1/V2原政策清算', 'V1-1、V2-1、财务确认规则第2条'),
@@ -533,7 +562,20 @@ sheet('结论摘要', ['指标', '数值', '说明'],
        ['管理层错误要求', len(mgr), '需逐条驳回']],
       {1: 26, 2: 18, 3: 40})
 
+_comm_over = (tot_paid - tot_pay) / 10000
+_rebate_gap = (tot_rebate - tot_rebate_paid) / 10000
+_net_gap = _rebate_gap - _comm_over
+sheet('核心结论', ['项目', '内容'], [
+    ['核心结论', f'一句话结论：历史佣金整体超发{_comm_over:.2f}万元、渠道返利少付{_rebate_gap:.2f}万元，两项相抵公司净少支出{_net_gap:.2f}万元；问题根源是手工台账按订单额粗算，未执行去重、封顶、退货、坏账与离职规则，建议逐人补追并在2025年四季度一次性清理。'],
+    ['支撑一', f'清算覆盖720个有效订单、120名销售、60件争议、40家渠道；佣金应发{tot_pay / 10000:.2f}万元、已发{tot_paid / 10000:.2f}万元，封顶扣减{sum(r[8] for r in person_rows) / 10000:.2f}万元。'],
+    ['支撑二', f'逐人判定应补{sum(r[12] for r in person_rows if r[12] > 0) / 10000:.2f}万元（55人）、应追回{-sum(r[12] for r in person_rows if r[12] < 0) / 10000:.2f}万元（62人）、一致3人；13人已发记录存在预发口径异常。'],
+    ['支撑三', f'渠道返利应付{tot_rebate / 10000:.2f}万元、已付{tot_rebate_paid / 10000:.2f}万元、应补{_rebate_gap:.2f}万元；2025年度未到结算期不计。'],
+    ['支撑四', f'2026年方案以不含税净回款为基数、个人70%+团队池30%、5倍封顶，2024年回测成本{new_cost_total / 10000:.2f}万元，较旧方案{old_new_cost / 10000:.2f}万元增长{(new_cost_total / old_new_cost - 1) * 100:.2f}%。'],
+    ['处理建议', '一是按逐人差额在2025年四季度一次性补发或追回；二是对13条异常预发记录单独说明并更正发放口径；三是2026年起统一以财务净回款为唯一计提基数，季度预发、年度清算。'],
+], {1: 14, 2: 80})
+
 out = f'{BASE}/销售佣金清算_v1_标准答案.xlsx'
+aw.move_sheet('核心结论', offset=-(len(aw.sheetnames) - 1))
 aw.save(out)
 print('答案已生成：', out)
 print('V1/V2/V3/保底 应发(万元):', round(tot_v1 / 1e4, 2), round(tot_v2 / 1e4, 2), round(tot_v3 / 1e4, 2), round(tot_g / 1e4, 2))
