@@ -258,14 +258,14 @@ sheet(wb, '勾稽自检', ['勾稽项', '左值', '右值', '差异', '结论'],
 on_names = [a['id'] for a in app_results if a['concl'] == '准入']
 ref_names = [a['id'] for a in app_results if a['concl'] == '整改后准入']
 off_names = [a['id'] for a in app_results if a['concl'] == '拒绝']
-core = (f'5个新加盟商申请中{admit_pass}家直接准入（{"。、".join(on_names)}）、{admit_reform}家整改后准入（{"。、".join(ref_names)}）、'
+core = (f'5个新加盟商申请中{admit_pass}家直接准入（{"、".join(on_names)}）、{admit_reform}家整改后准入（{"、".join(ref_names)}）、'
         f'{admit_reject}家拒绝；8家现有门店评级A级{grade_counts.get("A",0)}家、B级{grade_counts.get("B",0)}家、'
         f'C级{grade_counts.get("C",0)}家、D级{grade_counts.get("D",0)}家；授权费按城市与商圈系数差异化收取，'
         f'公司年度供应链毛利合计{r2(total_supply)}万元、管理费合计{r2(total_mgmt)}万元。')
 
 concl = [
     ['核心结论', core],
-    ['支撑一', f'新加盟商准入{admit_pass}家（{"。、".join(on_names)}）、整改后准入{admit_reform}家（{"。、".join(ref_names)}）、拒绝{admit_reject}家（{"。、".join(off_names)}），按资金实力25%、选址评分30%、运营经验25%、历史合规20%加权评分。'],
+    ['支撑一', f'新加盟商准入{admit_pass}家（{"、".join(on_names)}）、整改后准入{admit_reform}家（{"、".join(ref_names)}）、拒绝{admit_reject}家（{"、".join(off_names)}），按资金实力25%、选址评分30%、运营经验25%、历史合规20%加权评分。'],
     ['支撑二', f'现有门店A级{grade_counts.get("A",0)}家、B级{grade_counts.get("B",0)}家、C级{grade_counts.get("C",0)}家、D级{grade_counts.get("D",0)}家；A/B级正常续约，C级限期3个月整改后续约，D级合同到期收回加盟权。'],
     ['支撑三', f'授权费=面积×500×城市系数×商圈系数；保证金10万元/店；年度管理费按营收3%计提；公司供应链毛利=食材成本×20%÷120%，8家门店年度供应链毛利合计{r2(total_supply)}万元。'],
     ['支撑四', f'公司从8家加盟门店获得年度管理费合计{r2(total_mgmt)}万元、供应链毛利合计{r2(total_supply)}万元，合计{r2(total_supply+total_mgmt)}万元；续约谈判须提前3个月启动。'],
