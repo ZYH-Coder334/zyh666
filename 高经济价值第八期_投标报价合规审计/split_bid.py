@@ -123,7 +123,8 @@ wb_v = openpyxl.load_workbook(SRC_A, data_only=True)
 # 读勾稽
 chk_ws = wb_v['勾稽与核心结论']
 checks = [r for r in chk_ws.iter_rows(min_row=2, values_only=True)
-          if r[0] and r[0] != '============ 核心结论 ============' and r[0] != '勾稽项']
+          if r[0] and r[0] != '============ 核心结论 ============' and r[0] != '勾稽项'
+          and r[2] is not None and r[4] is not None]
 n_checks = len(checks)
 bad = sum(1 for c in checks
           if not (lambda l, rt: (isinstance(l, bool) and isinstance(rt, bool) and l == rt) or
@@ -254,7 +255,7 @@ for i, c in enumerate(conds, 1):
 
 # 八、完成标准
 H('八、完成标准')
-P(f'八轮任务逐轮完成且逐轮自检通过。120 个项目版本适用判定全部完成（v2.0 合规 {conc_dict.get("最终判定适用 v2.0 项目数", 0)} 个、v1.0 老制度 {conc_dict.get("签约年份 2024 项目（适用 v1.0）", 0)} 个、v1.0 降级 {conc_dict.get("v1.0 降级项目数", 0)} 个）；违规项目 {conc_dict.get("违规项目总数", 0)} 个，低价中标违规金额 {conc_dict.get("低价中标违规金额合计（万元）", 0)} 万元；陪标高置信度 {conc_dict.get("陪标项目（高置信度）", 0)} 个；审批生效要件违规 {conc_dict.get("审批要件违规数", 0)} 项；违规分级处置 {conc_dict.get("违规分级处置条目", 0)} 项（整改 {conc_dict.get("其中：整改", 0)}、解除合同 {conc_dict.get("其中：解除合同", 0)}）；管理层指令驳回 {conc_dict.get("驳回管理层指令", 0)} 项、识别正确指令 1 项；推理路径强制跨表判定链 {n_evidence} 条（覆盖 3 重显著性反转）；勾稽 {n_checks} 项全部一致后方可出具核心结论。')
+P(f'八轮任务逐轮完成且逐轮自检通过。120 个项目版本适用判定全部完成（v2.0 合规 {conc_dict.get("最终判定适用 v2.0 项目数", 0)} 个、v1.0 老制度 {conc_dict.get("签约年份 2024 项目（适用 v1.0）", 0)} 个、v1.0 降级 {conc_dict.get("v1.0 降级项目数", 0)} 个）；违规项目 {conc_dict.get("违规项目总数", 0)} 个，低价中标违规金额 {conc_dict.get("低价中标违规金额合计（万元）", 0)} 万元；陪标高置信度 {conc_dict.get("陪标项目（高置信度）", 0)} 个；审批生效要件违规 {conc_dict.get("审批生效要件违规数", 0)} 项；违规分级处置 {conc_dict.get("违规分级处置条目", 0)} 项（整改 {conc_dict.get("其中：整改", 0)}、解除合同 {conc_dict.get("其中：解除合同", 0)}）；管理层指令驳回 {conc_dict.get("驳回管理层指令", 0)} 项、识别正确指令 1 项；推理路径强制跨表判定链 {n_evidence} 条（覆盖 3 重显著性反转）；勾稽 {n_checks} 项全部一致后方可出具核心结论。')
 
 # 九、考点（70 条：50 数字型 + 20 推理链型）
 H('九、考点')
