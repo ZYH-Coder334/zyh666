@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0e5b46">
+<title>巷子里·小馆 · 扫码点单</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body class="page-order">
+<div class="app">
+  <header class="topbar">
+    <div class="brand">
+      <div class="logo">巷</div>
+      <div class="brand-txt">
+        <h1>巷子里·小馆</h1>
+        <p>现炒现做 · 人均 ¥45</p>
+      </div>
+    </div>
+    <div class="table-pill">桌号 <b id="tableNo">08</b></div>
+  </header>
+
+  <section class="hero" id="hero">
+    <p class="eyebrow">TODAY'S SPECIAL</p>
+    <h2>一碗热汤面，<br>把今天好好收个尾。</h2>
+    <div class="hero-meta"><span>营业 11:00–21:30</span><span>长乐路 88 号</span></div>
+  </section>
+
+  <nav class="cats" id="cats" aria-label="菜品分类"></nav>
+
+  <main id="menuArea">
+    <section class="menu-grid" id="menu"></section>
+  </main>
+
+  <section class="tracking" id="tracking" hidden></section>
+
+  <footer class="foot" id="foot">本店支持扫码点单 · 免服务费 · 出餐约 12 分钟</footer>
+
+  <div class="cartbar" id="cartbar" hidden>
+    <button class="cart-info" id="cartInfo">
+      <span class="cart-count" id="cartCount">0</span>
+      <span>合计 <b id="cartTotal">¥0</b></span>
+    </button>
+    <button class="btn" id="goCheckout">去结算</button>
+  </div>
+</div>
+
+<div class="mask" id="mask" hidden></div>
+<div class="sheet" id="sheet" hidden>
+  <div class="sheet-head">
+    <h3>确认订单</h3>
+    <button class="icon-btn" id="closeSheet" aria-label="关闭">✕</button>
+  </div>
+  <div class="sheet-body">
+    <div class="cart-list" id="cartList"></div>
+    <div class="field">
+      <label for="tableSel">就餐桌号</label>
+      <select id="tableSel"></select>
+    </div>
+    <div class="field">
+      <label for="noteInput">备注（可选）</label>
+      <input id="noteInput" maxlength="40" placeholder="如：少辣、不要香菜">
+    </div>
+    <div class="sheet-total"><span>合计（免服务费）</span><b id="sheetTotal">¥0</b></div>
+    <button class="btn btn-primary btn-block" id="submitOrder">提交订单</button>
+  </div>
+</div>
+
+<script src="assets/app.js"></script>
+<script>
+(function () {
+  const $ = id => document.getElementById(id);
+  const menuEl = $('menu');
+  const catsEl = $('cats');
+  const cartbar = $('cartbar');
+  const mask = $('mask');
+  const sheet = $('sheet');
+  const cart = new Map();
+  let activeCat = '全部';
+  let trackingId = null;
+
+  const findDish = id => MENU.find(m => m.id === id);
+  const qtyOf = id => cart.get(id) || 0;
+  const totals = () => {
+    let count = 0, amount = 0;
+    cart.forEach((qty, id) => { const m = findDish(id); count += qty; amount += m.price * qty; });
+    return { count, amount };
+  };
+
+  /* ---------- 分类 ---------- */
+  function renderCats() {
+    catsEl.innerHTML = CATS.map(c =>
+      `<button class="cat ${c === activeCat ? 'on' : ''}" data-cat="${c}">${c}</button>`
+    ).join('');
+  }
+
+  /* ---------- 菜单 ---------- */
+  function dishHTML(m) {
+    const qty = qtyOf(m.id);
+    const right = qty
+      ? `<div class="stepper">
+           <button data-act="minus" aria-label="减少">−</button>
+           <span>${qty}</span>
+           <button class="plus" data-act="plus" aria-label="增加">+</button>
+         </div>`
+      : `<button class="add-btn" data-act="plus" aria-label="加入">+</button>`;
+    return `<article class="dish" data-id="${m.id}">
+      <div class="dish-top">
+        <div class="thumb">${m.icon}</div>
+        <div class="dish-txt">
+          <h3>${m.name}${m.tag ? `<span class="tag">${m.tag}</span>` : ''}</h3>
+          <p>${m.desc}</p>
+        </div>
+      </div>
+      <div class="dish-foot">
+        <span class="price">¥${m.price}<small>/份</small></span>
+        ${right}
+      </div>
+    </article>`;
+  }
+
+  function renderMenu() {
+    if (activeCat === '全部') {
+      menuEl.innerHTML = CATS.slice(1).map(cat => {
+        const items = MENU.filter(m => m.cat === cat);
+        return `<div class="cat-title"><h3>${cat}</h3><span>${items.length} 款</span></div>`
+          + items.map(dishHTML).join('');
+      }).join('');
+    } else {
+      menuEl.innerHTML = MENU.filter(m => m.cat === activeCat).map(dishHTML).join('');
+    }
+  }
+
+  function renderCartBar() {
+    const { count, amount } = totals();
+    cartbar.hidden = count === 0 || trackingId !== null;
+    $('cartCount').textContent = count;
+    $('cartTotal').textContent = money(amount);
+  }
+
+  /* ---------- 购物车抽屉 ---------- */
+  function renderSheet() {
+    const rows = [...cart.entries()].map(([id, qty]) => {
+      const m = findDish(id);
+      return `<div class="cart-row" data-id="${id}">
+        <div class="ic">${m.icon}</div>
+        <div class="nm"><b>${m.name}</b><span>¥${m.price} / 份</span></div>
+        <div class="stepper">
+          <button data-act="minus">−</button><span>${qty}</span><button class="plus" data-act="plus">+</button>
+        </div>
+        <div class="amt">${money(m.price * qty)}</div>
+      </div>`;
+    }).join('');
+    $('cartList').innerHTML = rows || '<div class="empty-cart">购物车还是空的，先挑几道吧</div>';
+    $('sheetTotal').textContent = money(totals().amount);
+    $('submitOrder').disabled = cart.size === 0;
+  }
+
+  function openSheet() {
+    mask.hidden = false;
+    sheet.hidden = false;
+    renderSheet();
+    document.body.style.overflow = 'hidden';
+  }
+  function closeSheet() {
+    mask.hidden = true;
+    sheet.hidden = true;
+    document.body.style.overflow = '';
+  }
+
+  /* ---------- 下单与订单追踪 ---------- */
+  function showTracking(id) {
+    trackingId = id;
+    $('hero').hidden = true;
+    catsEl.hidden = true;
+    $('menuArea').hidden = true;
+    $('foot').hidden = true;
+    cartbar.hidden = true;
+    $('tracking').hidden = false;
+    renderTracking();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  function backToMenu() {
+    trackingId = null;
+    $('hero').hidden = false;
+    catsEl.hidden = false;
+    $('menuArea').hidden = false;
+    $('foot').hidden = false;
+    $('tracking').hidden = true;
+    renderMenu();
+    renderCartBar();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  function renderTracking() {
+    const o = trackingId && Store.get(trackingId);
+    if (!o) return;
+    const idx = FLOW.indexOf(o.status);
+    const hint = {
+      pending: '已通知后厨，请稍候片刻',
+      cooking: '后厨正在制作，香气马上就到',
+      served: '菜品已出餐，请慢用',
+      paid: '本次用餐已结账，欢迎下次光临'
+    }[o.status];
+    const icon = '✓';
+
+    const steps = FLOW.map((s, i) => {
+      const t = o.timeline && o.timeline[s];
+      const cls = i < idx ? 'done' : (i === idx ? 'done now' : '');
+      return `<div class="step ${cls}">
+        <div class="dot-col"><div class="dot">${i <= idx ? '✓' : i + 1}</div><div class="bar"></div></div>
+        <div class="txt"><b>${STATUS[s].label}</b><span>${t ? hhmm(t) : '等待中'}</span></div>
+      </div>`;
+    }).join('');
+
+    const rows = o.items.map(it =>
+      `<div class="r-row"><span>${it.name} × ${it.qty}</span><span>${money(it.price * it.qty)}</span></div>`
+    ).join('');
+
+    $('tracking').innerHTML = `
+      <div class="track-hero">
+        <div class="check">${icon}</div>
+        <h2>${o.status === 'paid' ? '感谢用餐' : '下单成功'}</h2>
+        <p>订单号 ${o.id} · 桌号 ${o.table} · ${hint}</p>
+      </div>
+      <div class="steps">${steps}</div>
+      <div class="receipt">
+        ${rows}
+        ${o.note ? `<div class="r-row" style="color:var(--accent)">备注：${o.note}</div>` : ''}
+        <div class="r-total"><span>合计</span><b>${money(o.total)}</b></div>
+      </div>
+      <div class="track-actions">
+        <button class="btn btn-ghost" id="againBtn">继续点餐</button>
+        <button class="btn btn-primary" id="statusBtn">刷新状态</button>
+      </div>
+      <p class="track-tip">订单状态会随厨房进度自动更新，无需手动刷新</p>
+    `;
+    $('againBtn').onclick = backToMenu;
+    $('statusBtn').onclick = renderTracking;
+  }
+
+  /* ---------- 事件绑定 ---------- */
+  catsEl.addEventListener('click', e => {
+    const b = e.target.closest('[data-cat]');
+    if (!b) return;
+    activeCat = b.dataset.cat;
+    renderCats();
+    renderMenu();
+  });
+
+  menuEl.addEventListener('click', e => {
+    const btn = e.target.closest('[data-act]');
+    if (!btn) return;
+    const id = e.target.closest('.dish').dataset.id;
+    const q = qtyOf(id);
+    if (btn.dataset.act === 'plus') cart.set(id, q + 1);
+    else if (q <= 1) cart.delete(id);
+    else cart.set(id, q - 1);
+    renderMenu();
+    renderCartBar();
+  });
+
+  $('cartList').addEventListener('click', e => {
+    const btn = e.target.closest('[data-act]');
+    if (!btn) return;
+    const id = e.target.closest('.cart-row').dataset.id;
+    const q = qtyOf(id);
+    if (btn.dataset.act === 'plus') cart.set(id, q + 1);
+    else if (q <= 1) cart.delete(id);
+    else cart.set(id, q - 1);
+    if (cart.size === 0) closeSheet();
+    renderMenu();
+    renderCartBar();
+    renderSheet();
+  });
+
+  $('cartInfo').onclick = openSheet;
+  $('goCheckout').onclick = openSheet;
+  $('closeSheet').onclick = closeSheet;
+  mask.onclick = closeSheet;
+
+  $('submitOrder').onclick = () => {
+    if (!cart.size) return;
+    const items = [...cart.entries()].map(([id, qty]) => {
+      const m = findDish(id);
+      return { id, name: m.name, price: m.price, icon: m.icon, qty };
+    });
+    const order = Store.add({
+      table: $('tableSel').value,
+      items,
+      note: $('noteInput').value.trim()
+    });
+    cart.clear();
+    $('noteInput').value = '';
+    closeSheet();
+    renderMenu();
+    renderCartBar();
+    showTracking(order.id);
+  };
+
+  Store.on(() => {
+    if (trackingId) renderTracking();
+    renderMenu();
+    renderCartBar();
+  });
+
+  /* ---------- 初始化 ---------- */
+  const table = tableNo();
+  $('tableNo').textContent = table;
+  $('tableSel').innerHTML = Array.from({ length: 16 }, (_, i) =>
+    `<option value="${String(i + 1).padStart(2, '0')}">${String(i + 1).padStart(2, '0')} 号桌</option>`
+  ).join('');
+  $('tableSel').value = table;
+  renderCats();
+  renderMenu();
+  renderCartBar();
+})();
+</script>
+</body>
+</html>

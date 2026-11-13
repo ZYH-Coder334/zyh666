@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#0f1417">
+<title>后厨看板 · 巷子里·小馆</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body class="page-kitchen">
+<header class="kds-head">
+  <div class="kds-title">
+    <span class="dot-live"></span>
+    <h1>后厨看板</h1>
+    <span id="clock">--:--</span>
+  </div>
+  <div class="kds-stats">
+    <div class="kchip">待接单 <b id="sPending">0</b></div>
+    <div class="kchip warn">制作中 <b id="sCooking">0</b></div>
+    <div class="kchip">今日已出餐 <b id="sServed">0</b></div>
+    <a class="kchip" href="admin.html" style="text-decoration:none">店长看板 →</a>
+  </div>
+</header>
+
+<main class="kcols">
+  <section class="kcol pending">
+    <div class="kcol-head"><h2>待接单</h2><b id="cPending">0</b></div>
+    <div class="klist" id="colPending"></div>
+  </section>
+  <section class="kcol cooking">
+    <div class="kcol-head"><h2>制作中</h2><b id="cCooking">0</b></div>
+    <div class="klist" id="colCooking"></div>
+  </section>
+  <section class="kcol served">
+    <div class="kcol-head"><h2>今日已出餐</h2><b id="cServed">0</b></div>
+    <div class="klist" id="colServed"></div>
+  </section>
+</main>
+
+<script src="assets/app.js"></script>
+<script>
+(function () {
+  const $ = id => document.getElementById(id);
+  const LATE = { pending: 5, cooking: 15 };
+
+  function ticketHTML(o) {
+    const late = (Date.now() - (o.timeline[o.status] || o.createdAt)) / 60000 > LATE[o.status];
+    const items = o.items.map(it =>
+      `<div class="ti-row"><span class="q">×${it.qty}</span><span class="n">${it.name}</span></div>`
+    ).join('');
+    let action = '';
+    if (o.status === 'pending') action = `<button class="kbtn primary" data-id="${o.id}" data-to="cooking">接 单</button>`;
+    if (o.status === 'cooking') action = `<button class="kbtn serve" data-id="${o.id}" data-to="served">出 餐</button>`;
+    return `<article class="ticket ${late ? 'hot' : ''}" data-id="${o.id}">
+      <div class="ticket-top">
+        <div>
+          <div class="table-big">${o.table}<small>号桌</small></div>
+          <div class="waited ${late ? 'late' : ''}" data-ts="${o.createdAt}">已等待 ${elapsed(o.createdAt)}</div>
+        </div>
+        <div class="ticket-meta"><span class="oid">${o.id}</span><br>${hhmm(o.createdAt)}</div>
+      </div>
+      <div class="ticket-items">${items}</div>
+      ${o.note ? `<div class="ti-note">备注：${o.note}</div>` : ''}
+      ${action}
+    </article>`;
+  }
+
+  function fill(el, orders, emptyText) {
+    el.innerHTML = orders.length
+      ? orders.map(ticketHTML).join('')
+      : `<div class="kempty">${emptyText}</div>`;
+  }
+
+  function render() {
+    const all = Store.orders();
+    const pending = all.filter(o => o.status === 'pending');
+    const cooking = all.filter(o => o.status === 'cooking');
+    const served = all.filter(o => o.status === 'served' && isToday(o.createdAt)).slice(0, 8);
+
+    fill($('colPending'), pending, '暂无新订单');
+    fill($('colCooking'), cooking, '灶台空闲中');
+    fill($('colServed'), served, '还没有出餐记录');
+
+    $('cPending').textContent = pending.length;
+    $('cCooking').textContent = cooking.length;
+    $('cServed').textContent = served.length;
+    $('sPending').textContent = pending.length;
+    $('sCooking').textContent = cooking.length;
+    $('sServed').textContent = served.length;
+  }
+
+  function clock() {
+    const d = new Date();
+    $('clock').textContent = hhmm(d.getTime()) + ':' + String(d.getSeconds()).padStart(2, '0');
+  }
+
+  document.addEventListener('click', e => {
+    const btn = e.target.closest('[data-to]');
+    if (!btn) return;
+    Store.setStatus(btn.dataset.id, btn.dataset.to);
+  });
+
+  Store.on(render);
+  render();
+  clock();
+  setInterval(() => {
+    clock();
+    document.querySelectorAll('.waited[data-ts]').forEach(el => {
+      el.textContent = '已等待 ' + elapsed(Number(el.dataset.ts));
+    });
+  }, 1000);
+})();
+</script>
+</body>
+</html>

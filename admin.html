@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#f4f1e9">
+<title>店长看板 · 巷子里·小馆</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body class="page-admin">
+<div class="admin-shell">
+  <header class="admin-head">
+    <div class="logo">巷</div>
+    <div>
+      <h1>巷子里·小馆 · 店长看板</h1>
+      <p id="todayLabel">今日经营概览</p>
+    </div>
+    <nav class="admin-nav">
+      <a href="index.html" target="_blank">顾客点单页 ↗</a>
+      <a href="kitchen.html" target="_blank">后厨看板 ↗</a>
+    </nav>
+  </header>
+
+  <section class="kpis">
+    <div class="kpi dark">
+      <div class="k-label">今日营业额</div>
+      <div class="k-val" id="kRevenue">¥0</div>
+      <div class="k-sub">仅统计已结账订单</div>
+    </div>
+    <div class="kpi">
+      <div class="k-label">已结账订单</div>
+      <div class="k-val" id="kOrders">0<small>单</small></div>
+      <div class="k-sub" id="kActive">在店 0 桌</div>
+    </div>
+    <div class="kpi">
+      <div class="k-label">客单价</div>
+      <div class="k-val" id="kAvg">¥0</div>
+      <div class="k-sub">营业额 ÷ 已结账订单</div>
+    </div>
+    <div class="kpi">
+      <div class="k-label">今日菜品销量</div>
+      <div class="k-val" id="kDishes">0<small>份</small></div>
+      <div class="k-sub">含未结账订单</div>
+    </div>
+  </section>
+
+  <div class="grid2">
+    <section class="panel">
+      <div class="panel-head"><h3>今日各时段营业额</h3><span>10:00 – 21:59</span></div>
+      <div class="bars" id="bars"></div>
+    </section>
+    <section class="panel">
+      <div class="panel-head"><h3>热销 Top 5</h3><span>按份数</span></div>
+      <div class="top-list" id="topList"></div>
+    </section>
+  </div>
+
+  <section class="panel">
+    <div class="panel-head">
+      <h3>今日订单</h3>
+      <div class="panel-tools">
+        <button class="btn btn-ghost" id="seedBtn">载入示例数据</button>
+        <button class="btn btn-ghost" id="resetBtn">清空数据</button>
+      </div>
+    </div>
+    <div class="orders" id="orders"></div>
+  </section>
+</div>
+
+<script src="assets/app.js"></script>
+<script>
+(function () {
+  const $ = id => document.getElementById(id);
+  const NEXT = { pending: ['cooking', '接单'], cooking: ['served', '出餐'], served: ['paid', '结账'] };
+  const HOURS = Array.from({ length: 12 }, (_, i) => i + 10);
+
+  function render() {
+    const all = Store.orders();
+    const today = all.filter(o => isToday(o.createdAt));
+    const paid = today.filter(o => o.status === 'paid');
+    const revenue = paid.reduce((s, o) => s + o.total, 0);
+    const dishes = today.reduce((s, o) => s + o.items.reduce((n, it) => n + it.qty, 0), 0);
+    const activeTables = new Set(today.filter(o => o.status !== 'paid').map(o => o.table)).size;
+
+    $('kRevenue').textContent = money(revenue);
+    $('kOrders').innerHTML = paid.length + '<small>单</small>';
+    $('kAvg').textContent = money(paid.length ? Math.round(revenue / paid.length) : 0);
+    $('kDishes').innerHTML = dishes + '<small>份</small>';
+    $('kActive').textContent = '在店 ' + activeTables + ' 桌';
+    $('todayLabel').textContent = new Date().toLocaleDateString('zh-CN', {
+      month: 'long', day: 'numeric', weekday: 'long'
+    }) + ' · 数据实时同步';
+
+    /* 时段柱状图 */
+    const vals = HOURS.map(h => paid
+      .filter(o => new Date(o.createdAt).getHours() === h)
+      .reduce((s, o) => s + o.total, 0));
+    const max = Math.max(...vals, 1);
+    $('bars').innerHTML = HOURS.map((h, i) => {
+      const v = vals[i];
+      const height = v ? Math.max(8, Math.round(v / max * 118)) : 4;
+      return `<div class="bar ${v ? '' : 'zero'}">
+        <b>${v ? v : ''}</b>
+        <i style="height:${height}px"></i>
+        <span>${h}</span>
+      </div>`;
+    }).join('');
+
+    /* 热销 Top5 */
+    const tally = new Map();
+    today.forEach(o => o.items.forEach(it => {
+      const cur = tally.get(it.name) || { name: it.name, qty: 0 };
+      cur.qty += it.qty;
+      tally.set(it.name, cur);
+    }));
+    const top = [...tally.values()].sort((a, b) => b.qty - a.qty).slice(0, 5);
+    const topMax = top.length ? top[0].qty : 1;
+    $('topList').innerHTML = top.length ? top.map((t, i) => `
+      <div class="top-item">
+        <span class="rank">${i + 1}</span>
+        <div><div class="t-name">${t.name}</div><div class="t-bar"><i style="width:${t.qty / topMax * 100}%"></i></div></div>
+        <span class="t-qty">${t.qty} 份</span>
+      </div>`).join('') : '<div class="kempty" style="color:var(--muted);font-size:12px">今天还没有销量数据</div>';
+
+    /* 订单列表 */
+    $('orders').innerHTML = today.length ? today.map(o => {
+      const next = NEXT[o.status];
+      const summary = o.items.map(it => `${it.name}×${it.qty}`).join('、');
+      return `<div class="order-row">
+        <div class="o-id">${o.id}<span>${o.table} 号桌 · ${hhmm(o.createdAt)}</span></div>
+        <div class="o-items">${summary}${o.note ? `（${o.note}）` : ''}</div>
+        <div class="o-amt">${money(o.total)}</div>
+        ${next
+          ? `<button class="o-act" data-id="${o.id}" data-to="${next[0]}">${next[1]}</button>`
+          : `<span class="badge st-paid">${STATUS[o.status].label}</span>`}
+      </div>`;
+    }).join('') : '<div class="kempty">今天还没有订单，去点单页下一单试试</div>';
+  }
+
+  document.addEventListener('click', e => {
+    const btn = e.target.closest('[data-to]');
+    if (btn) Store.setStatus(btn.dataset.id, btn.dataset.to);
+  });
+
+  $('seedBtn').onclick = () => Store.seed();
+  $('resetBtn').onclick = () => {
+    if (confirm('确定清空本机全部订单数据？')) Store.reset();
+  };
+
+  Store.on(render);
+  render();
+})();
+</script>
+</body>
+</html>
