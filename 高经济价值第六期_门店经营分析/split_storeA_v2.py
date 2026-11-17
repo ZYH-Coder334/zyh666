@@ -35,22 +35,38 @@ IN_RAR = f'{OUT}/门店经营分析_v1_输入附件.rar'
 AN_RAR = f'{OUT}/门店经营分析_v1_标准答案.rar'
 DOCX = f'{OUT}/门店经营分析_v1_题目.docx'
 
-EXCEL_APP = ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\r\n'
-             '<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties" '
-             'xmlns:vt="http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes">'
-             '<Application>Microsoft Excel</Application><DocSecurity>0</DocSecurity><ScaleCrop>false</ScaleCrop>'
-             f'<Company>{COMPANY}</Company><LinksUpToDate>false</LinksUpToDate><SharedDoc>false</SharedDoc>'
-             '<HyperlinksChanged>false</HyperlinksChanged><AppVersion>{ver}</AppVersion></Properties>')
-WORD_APP = ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\r\n'
-            '<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties" '
-            'xmlns:vt="http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes">'
-            '<Application>Microsoft Office Word</Application><DocSecurity>0</DocSecurity><ScaleCrop>false</ScaleCrop>'
+XMLHEAD = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\r\n'
+PROPS_NS = ('<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties" '
+            'xmlns:vt="http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes">')
+
+
+def app_xml_xlsx(sheet_names, ver):
+    n = len(sheet_names)
+    pairs = ('<HeadingPairs><vt:vector size="2" baseType="variant">'
+             '<vt:variant><vt:lpstr>工作表</vt:lpstr></vt:variant>'
+             f'<vt:variant><vt:i4>{n}</vt:i4></vt:variant></vt:vector></HeadingPairs>'
+             f'<TitlesOfParts><vt:vector size="{n}" baseType="lpstr">'
+             + ''.join(f'<vt:lpstr>{s}</vt:lpstr>' for s in sheet_names)
+             + '</vt:vector></TitlesOfParts>')
+    return (XMLHEAD + PROPS_NS + '<Application>Microsoft Excel</Application><DocSecurity>0</DocSecurity>'
+            '<ScaleCrop>false</ScaleCrop>' + pairs +
             f'<Company>{COMPANY}</Company><LinksUpToDate>false</LinksUpToDate><SharedDoc>false</SharedDoc>'
-            '<HyperlinksChanged>false</HyperlinksChanged><AppVersion>16.0000</AppVersion></Properties>')
+            f'<HyperlinksChanged>false</HyperlinksChanged><AppVersion>{ver}</AppVersion></Properties>')
+
+
+def app_xml_docx(nchar, npara, ver='16.0000'):
+    pages = max(1, round(nchar / 780))
+    lines = max(1, round(nchar / 34))
+    return (XMLHEAD + PROPS_NS + '<Template>Normal.dotm</Template><TotalTime>143</TotalTime>'
+            f'<Pages>{pages}</Pages><Words>{nchar}</Words><Characters>{nchar}</Characters>'
+            f'<Application>Microsoft Office Word</Application><DocSecurity>0</DocSecurity>'
+            f'<Lines>{lines}</Lines><Paragraphs>{npara}</Paragraphs><ScaleCrop>false</ScaleCrop>'
+            f'<Company>{COMPANY}</Company><LinksUpToDate>false</LinksUpToDate><SharedDoc>false</SharedDoc>'
+            f'<HyperlinksChanged>false</HyperlinksChanged><AppVersion>{ver}</AppVersion></Properties>')
 
 
 def core_xml(author, lastmod, rev, created, modified):
-    return ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\r\n'
+    return (XMLHEAD +
             '<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" '
             'xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" '
             'xmlns:dcmitype="http://purl.org/dc/dcmitype/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">'
@@ -60,17 +76,43 @@ def core_xml(author, lastmod, rev, created, modified):
             f'<dcterms:modified xsi:type="dcterms:W3CDTF">{modified}</dcterms:modified></cp:coreProperties>')
 
 
-def scrub(path, app_tpl, meta, zip_dt, app_ver='16.0300'):
+FILEVERSION = ('<fileVersion appName="xl" lastEdited="7" lowestEdited="7" rupBuild="27519"/>')
+
+
+def scrub(path, meta, zip_dt, kind='xlsx', app_ver='16.0300', doc_stats=None):
     author, lastmod, rev, created, modified = meta
     with zipfile.ZipFile(path) as zf:
         items = [(i, zf.read(i.filename)) for i in zf.infolist()]
+    names = [i.filename for i, _ in items]
+    dropped = set()
+    if kind == 'docx' and 'docProps/thumbnail.jpeg' in names:
+        dropped.add('docProps/thumbnail.jpeg')
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
         for info, data in items:
+            if info.filename in dropped:
+                continue
             if info.filename == 'docProps/app.xml':
-                data = app_tpl.format(ver=app_ver).encode('utf-8')
+                if kind == 'xlsx':
+                    with zipfile.ZipFile(path) as zf0:
+                        wbx = zf0.read('xl/workbook.xml').decode('utf-8')
+                    sheets = re.findall(r'<sheet[^>]*name="([^"]+)"', wbx)
+                    data = app_xml_xlsx(sheets, app_ver).encode('utf-8')
+                else:
+                    nchar, npara = doc_stats
+                    data = app_xml_docx(nchar, npara, app_ver).encode('utf-8')
             elif info.filename == 'docProps/core.xml':
                 data = core_xml(author, lastmod, rev, created, modified).encode('utf-8')
+            elif info.filename == '_rels/.rels' and dropped:
+                txt = data.decode('utf-8')
+                txt = re.sub(r'<Relationship[^>]*thumbnail\.jpeg[^>]*/>', '', txt)
+                data = txt.encode('utf-8')
+            elif info.filename == 'xl/workbook.xml' and '<fileVersion' not in data.decode('utf-8'):
+                txt = data.decode('utf-8')
+                m = re.match(r'(<workbook[^>]*>)', txt)
+                if m:
+                    txt = txt[:m.end()] + FILEVERSION + txt[m.end():]
+                data = txt.encode('utf-8')
             zi = zipfile.ZipInfo(info.filename, date_time=zip_dt)
             zi.compress_type = zipfile.ZIP_DEFLATED
             zi.external_attr = 0o600 << 16
@@ -168,7 +210,7 @@ def build_packs(src_path, packs, meta_map, rar_path, dt_default):
         y, mo, d, h, mi, s = (int(x) for x in re.split(r'[-T:Z]', meta[4])[:6])
         zip_dt = (y, mo, d, h + 8 if h + 8 < 24 else h, mi, s)
         zip_dt = (y, mo, d, (h + 8) % 24, mi, s)
-        scrub(tmp, EXCEL_APP, meta, zip_dt)
+        scrub(tmp, meta, zip_dt, kind='xlsx', app_ver='16.0300' if y % 2 == 0 else '16.0000')
         members.append((fn, tmp, zip_dt))
     with zipfile.ZipFile(rar_path, 'w', zipfile.ZIP_DEFLATED) as z:
         for fn, path, zd in members:
@@ -261,6 +303,10 @@ def P(d, text, bold=False, indent=True):
 
 
 doc = new_doc()
+# 移除环境默认模板插入的 "含 AI 生成" 文本框
+for _p in list(doc.paragraphs):
+    if 'AILabel' in _p._element.xml:
+        _p._element.getparent().remove(_p._element)
 H(doc, '连锁门店2026年Q1经营分析与亏损店处置', 0)
 
 H(doc, '一、编号')
@@ -501,9 +547,11 @@ P(doc, f'关键结果：30家门店Q1合计营业收入{TOT_REV}万元、EBITDA 
        f'店长奖金合计{BONUS}万元；{N_CHK}项勾稽全部闭合，不一致项为0。')
 
 doc.core_properties.author = '运营分析部'
+NPARA = len(doc.paragraphs)
+NCHAR = sum(len(p.text) for p in doc.paragraphs)
 doc.save(DOCX)
-scrub(DOCX, WORD_APP, ('运营分析部-陈建华', '财务总监-周涛', '12', '2026-04-03T02:41:27Z', '2026-04-05T01:18:36Z'),
-      (2026, 4, 5, 10, 0, 0))
+scrub(DOCX, ('运营分析部-陈建华', '财务总监-周涛', '12', '2026-04-03T02:41:27Z', '2026-04-05T01:18:36Z'),
+      (2026, 4, 5, 10, 0, 0), kind='docx', app_ver='16.0000', doc_stats=(NCHAR, NPARA))
 
 print('done')
 print('rev', TOT_REV, 'book', BOOK_REV, 'gap', REV_GAP, 'ebitdaGap', EBITDA_GAP)
