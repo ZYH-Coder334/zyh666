@@ -107,6 +107,11 @@ def scrub(path, meta, zip_dt, kind='xlsx', app_ver='16.0300', doc_stats=None):
                 txt = data.decode('utf-8')
                 txt = re.sub(r'<Relationship[^>]*thumbnail\.jpeg[^>]*/>', '', txt)
                 data = txt.encode('utf-8')
+            elif info.filename == 'word/document.xml' and kind == 'docx':
+                txt = data.decode('utf-8')
+                txt = re.sub(r'<w:drawing>(?:(?!</w:drawing>).)*?AILABEL(?:(?!</w:drawing>).)*?</w:drawing>',
+                             '', txt, flags=re.S | re.I)
+                data = txt.encode('utf-8')
             elif info.filename == 'xl/workbook.xml' and '<fileVersion' not in data.decode('utf-8'):
                 txt = data.decode('utf-8')
                 m = re.match(r'(<workbook[^>]*>)', txt)
